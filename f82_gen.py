@@ -120,6 +120,9 @@ def schlick_approx_fresnel(F0, theta_i):
     omc5 = omc2 * omc2 * omc
     return F0 + (1.0 - F0) * omc5
 
+
+############################################################################################
+# main calculation
 ############################################################################################
 
 cmfs = colour.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
@@ -130,24 +133,33 @@ def compute_metal_colors(ior_file, colorspace):
     # Get IOR and k versus frequency
     wavelength_vals, c_ior_data = read_ior_file(ior_file)
 
-    # Gives Fresnel reflectance at given angle, as a function of wavelength
+    # Gives Fresnel reflectance at a given angle, as a function of wavelength
     F0_spectral  = spectral_ior_to_spd_fresnel(wavelength_vals, c_ior_data, 0.0)
     F82_spectral = spectral_ior_to_spd_fresnel(wavelength_vals, c_ior_data, theta_82)
 
     colorspace = colorspace.strip()
-    if colorspace=="ACEScg":   illuminant = colour.SDS_ILLUMINANTS["D60"]
-    elif colorspace=="sRGB":   illuminant = colour.SDS_ILLUMINANTS["D65"]
+    if colorspace=="ACEScg":   sds_illuminant = colour.SDS_ILLUMINANTS["D60"]
+    elif colorspace=="sRGB":   sds_illuminant = colour.SDS_ILLUMINANTS["D65"]
     else:
-        print("need to specify illuminant for colorspace ", colorspace)
+        print("need to specify illuminant for RGB colorspace ", colorspace)
         quit()
 
     # Integrate Fresnel over CMFs to get XYZ color (for given angle)
-    XYZ_F0 = colour.sd_to_XYZ(F0_spectral, cmfs=cmfs, illuminant=illuminant) / 100
-    XYZ_F82 = colour.sd_to_XYZ(F82_spectral, cmfs=cmfs, illuminant=illuminant) / 100
+    XYZ_F0  = colour.sd_to_XYZ(F0_spectral,  cmfs=cmfs, illuminant=sds_illuminant) / 100
+    XYZ_F82 = colour.sd_to_XYZ(F82_spectral, cmfs=cmfs, illuminant=sds_illuminant) / 100
 
     # Convert to RGB
-    RGB_F0 = colour.XYZ_to_RGB(XYZ_F0, RGB_COLOURSPACES[colorspace])
-    RGB_F82 = colour.XYZ_to_RGB(XYZ_F82, RGB_COLOURSPACES[colorspace])
+    if colorspace=="ACEScg":
+        xy_ACEScg = np.array([0.32168, 0.33767])
+        RGB_F0  = colour.XYZ_to_RGB(XYZ_F0,  RGB_COLOURSPACES["ACEScg"], illuminant=xy_ACEScg)
+        RGB_F82 = colour.XYZ_to_RGB(XYZ_F82, RGB_COLOURSPACES["ACEScg"], illuminant=xy_ACEScg)
+    elif colorspace=="sRGB":
+        # Note apply_cctf_encoding=False ensures we get linear sRGB values
+        RGB_F0  = colour.XYZ_to_sRGB(XYZ_F0, apply_cctf_encoding=False)
+        RGB_F82 = colour.XYZ_to_sRGB(XYZ_F82, apply_cctf_encoding=False)
+    else:
+        print("need to provide XYZ->RGB conversion for RGB colorspace ", colorspace)
+        quit()
 
     # Thus compute the F82-tint (specular_color) and F0 (base_color)
     FSchlick_82_RGB = np.array([schlick_approx_fresnel(RGB_F0[0], theta_82),
@@ -156,6 +168,7 @@ def compute_metal_colors(ior_file, colorspace):
     base_color = RGB_F0
     specular_color = RGB_F82 / FSchlick_82_RGB
     return (base_color, specular_color)
+
 
 
 metals = {}
