@@ -7,8 +7,36 @@ from colour.models import RGB_COLOURSPACES
 import matplotlib.pyplot as plt
 import pandas as pd
 
-
 IOR_FILE_DIR = "ior_data/"
+
+# Shared color data
+cmfs = colour.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
+
+# Data for ACEScg (AP1) RGB space
+d60_spd = colour.SDS_ILLUMINANTS["D60"]
+d60_wp = colour.XYZ_to_xy(colour.sd_to_XYZ(d60_spd))
+ap1_wp = RGB_COLOURSPACES["ACEScg"].whitepoint # Not quite D60
+ap1_xyz2rgb = RGB_COLOURSPACES["ACEScg"].matrix_XYZ_to_RGB
+ap1_rgb2xyz = RGB_COLOURSPACES["ACEScg"].matrix_RGB_to_XYZ
+
+# Data for sRGB / Rec.709 RGB space
+d65_spd = colour.SDS_ILLUMINANTS["D65"]
+srgb_wp = RGB_COLOURSPACES["sRGB"].whitepoint # D65
+srgb_xyz2rgb = RGB_COLOURSPACES["sRGB"].matrix_XYZ_to_RGB
+srgb_rgb2xyz = RGB_COLOURSPACES["sRGB"].matrix_RGB_to_XYZ
+
+# Normalization factors to correct for inaccuracies in the color math.
+unity_wavelengths = np.arange(360, 781, 20)
+unity_vals = np.ones(unity_wavelengths.shape)
+unity_spectral_dict = dict(zip(unity_wavelengths, unity_vals))
+unity_spd = colour.SpectralDistribution(unity_spectral_dict, name="Unity")
+unity_XYZ_ap1 = colour.sd_to_XYZ(unity_spd, cmfs, d60_spd) / 100
+# NOTE: Need chromatic adaptation since D60 and AP1 have slightly different white points
+unity_RGB_ap1 = colour.XYZ_to_RGB(unity_XYZ_ap1, d60_wp, ap1_wp, ap1_xyz2rgb)
+norm_RGB_ap1 = 1.0 / unity_RGB_ap1
+unity_XYZ_srgb = colour.sd_to_XYZ(unity_spd, cmfs, d65_spd) / 100
+unity_RGB_srgb = colour.XYZ_to_RGB(unity_XYZ_srgb, srgb_wp, srgb_wp, ap1_xyz2rgb)
+norm_RGB_srgb = 1.0 / unity_RGB_srgb
 
 ############################################################################################
 # IOR data reading utils, from https://github.com/natyh/material-params
@@ -125,8 +153,7 @@ def schlick_approx_fresnel(F0, theta_i):
 # main calculation
 ############################################################################################
 
-cmfs = colour.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
-theta_82 = np.rad2deg(math.acos(1.0/7.0))
+
 
 def compute_metal_colors(ior_file, colorspace):
 
@@ -134,6 +161,7 @@ def compute_metal_colors(ior_file, colorspace):
     wavelength_vals, c_ior_data = read_ior_file(ior_file)
 
     # Gives Fresnel reflectance at a given angle, as a function of wavelength
+    theta_82 = np.rad2deg(math.acos(1.0/7.0))
     F0_spectral  = spectral_ior_to_spd_fresnel(wavelength_vals, c_ior_data, 0.0)
     F82_spectral = spectral_ior_to_spd_fresnel(wavelength_vals, c_ior_data, theta_82)
 
@@ -145,21 +173,22 @@ def compute_metal_colors(ior_file, colorspace):
         quit()
 
     # Integrate Fresnel over CMFs to get XYZ color (for given angle)
-    XYZ_F0  = colour.sd_to_XYZ(F0_spectral,  cmfs=cmfs, illuminant=sds_illuminant) / 100
-    XYZ_F82 = colour.sd_to_XYZ(F82_spectral, cmfs=cmfs, illuminant=sds_illuminant) / 100
-
-    # Convert to RGB
     if colorspace=="ACEScg":
-        xy_ACEScg = np.array([0.32168, 0.33767])
-        RGB_F0  = colour.XYZ_to_RGB(XYZ_F0,  RGB_COLOURSPACES["ACEScg"], illuminant=xy_ACEScg)
-        RGB_F82 = colour.XYZ_to_RGB(XYZ_F82, RGB_COLOURSPACES["ACEScg"], illuminant=xy_ACEScg)
+        XYZ_F0  = colour.sd_to_XYZ(F0_spectral,  cmfs=cmfs, illuminant=d60_spd) / 100
+        XYZ_F82 = colour.sd_to_XYZ(F82_spectral, cmfs=cmfs, illuminant=d60_spd) / 100
+        RGB_F0  = colour.XYZ_to_RGB(XYZ_F0, d60_wp, ap1_wp, ap1_xyz2rgb)  # NOTE: Need chromatic adaptation since D60 and AP1 have slightly different white points
+        RGB_F82 = colour.XYZ_to_RGB(XYZ_F82, d60_wp, ap1_wp, ap1_xyz2rgb) # NOTE: Need chromatic adaptation since D60 and AP1 have slightly different white points
     elif colorspace=="sRGB":
-        # Note apply_cctf_encoding=False ensures we get linear sRGB values
-        RGB_F0  = colour.XYZ_to_sRGB(XYZ_F0, apply_cctf_encoding=False)
-        RGB_F82 = colour.XYZ_to_sRGB(XYZ_F82, apply_cctf_encoding=False)
+        XYZ_F0  = colour.sd_to_XYZ(F0_spectral,  cmfs=cmfs, illuminant=d65_spd) / 100
+        XYZ_F82 = colour.sd_to_XYZ(F82_spectral, cmfs=cmfs, illuminant=d65_spd) / 100
+        RGB_F0  = np.dot(srgb_xyz2rgb, XYZ_F0)  # When no chromatic adaptation, equivalent to colour.XYZ_to_RGB and much faster
+        RGB_F82 = np.dot(srgb_xyz2rgb, XYZ_F82) # When no chromatic adaptation, equivalent to colour.XYZ_to_RGB and much faster
     else:
-        print("need to provide XYZ->RGB conversion for RGB colorspace ", colorspace)
+        print("need to provide conversion code for RGB colorspace ", colorspace)
         quit()
+
+    RGB_F0 = RGB_F0 * norm_RGB_ap1   # Normalize to account for minor inaccuracies in color math
+    RGB_F82 = RGB_F82 * norm_RGB_ap1 # Normalize to account for minor inaccuracies in color math
 
     # Thus compute the F82-tint (specular_color) and F0 (base_color)
     FSchlick_82_RGB = np.array([schlick_approx_fresnel(RGB_F0[0], theta_82),
@@ -175,6 +204,7 @@ metals = {}
 
 for ior_file in os.listdir(IOR_FILE_DIR):
 
+    print(ior_file)
     metal_name = os.path.splitext(ior_file)[0]
     ior_file_path = os.path.join(IOR_FILE_DIR, ior_file)
 
