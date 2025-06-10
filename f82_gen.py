@@ -264,7 +264,7 @@ cellColours[0] = ['lightgrey']*c
 cellColours[1] = ['none']*c
 cellColours[2] = ['none']*c
 table = ax.table(cellText=np.vstack([df.columns, df.values]), fontsize=8,
-                 cellColours=cellColours, bbox=[0, 0, 1, 1])
+                 cellColours=cellColours, bbox=[0, 0, 1, 1], cellLoc='center')
 
 table.auto_set_font_size(False)
 table.scale(1.5, 1.5)
@@ -275,12 +275,22 @@ for col in range(0, c):
         cell.visible_edges = 'closed'
         cell = table[row, col]
         cell.set(color='lightgrey')
-        cell.set(edgecolor='black')
+        cell.set(edgecolor='lightgrey')
         cell.set(fill = True)
-        cell.set_text_props(weight='bold')
+        cell.set_text_props(weight='bold', size=10)
 
+line_col = (0.9, 0.9, 0.9)
 
 for row in range(1, r+1):
+
+    for col in range(1, c):
+        cell = table[row, col]
+        cell.set(edgecolor=line_col)
+
+    metal_name_cell = table[row, 0]
+    metal_name_cell.set_text_props(ha="left", weight='bold', size=10, color=(0.3, 0.3, 0.3))
+    metal_name_cell.set(color=(0.95, 0.95, 0.95))
+    metal_name_cell.set(edgecolor=line_col)
 
     metal = data['Metal'][row-1]
     metal_props = metals[metal]
@@ -295,6 +305,8 @@ for row in range(1, r+1):
 
     fg_color_cell = table[row, 6]
     fg_color_cell.set(color=Fg)
+
+
 
 # need to draw here so the text positions are calculated
 fig.canvas.draw()
