@@ -311,6 +311,45 @@ for row in range(1, r+1):
 # need to draw here so the text positions are calculated
 fig.canvas.draw()
 
-
 plt.show()
 
+# Output the table in LaTeX format with color swatches
+
+def rgb_to_latex_color(rgb):
+    # Convert numpy array to 0-255 integer tuple
+    rgb = np.clip(rgb, 0.0, 1.0)
+    return '{%d,%d,%d}' % tuple((rgb * 255).astype(int))
+
+latex_rows = []
+for i in range(len(df)):
+    f0_rgb = metals[data['Metal'][i]]["base_color"]['sRGB']
+    fg_rgb = metals[data['Metal'][i]]["specular_color"]['sRGB']
+    f0_color = rgb_to_latex_color(f0_rgb)
+    fg_color = rgb_to_latex_color(fg_rgb)
+    latex_rows.append([
+        data['Metal'][i],
+        data['F0 (sRGB)'][i],
+        data['F0 (ACEScg)'][i],
+        data['F82-tint (sRGB)'][i],
+        data['F82-tint (ACEScg)'][i],
+        r'\cellcolor[RGB]' + f0_color,
+        r'\cellcolor[RGB]' + fg_color
+    ])
+
+latex_header = [
+    'Metal',
+    'F0 (sRGB)',
+    'F0 (ACEScg)',
+    'F82-tint (sRGB)',
+    'F82-tint (ACEScg)',
+    'F0 (sRGB color)',
+    'F82-tint (sRGB color)'
+]
+
+latex_table = '\\begin{tabular}{lcccccc}\n\\rowcolor{lightgray}\n' + \
+    ' & '.join(latex_header) + ' \\\\\n'
+for row in latex_rows:
+    latex_table += ' & '.join(row) + ' \\\\\n'
+latex_table += '\\end{tabular}'
+
+print(latex_table)
